@@ -107,9 +107,6 @@ for my $job (@jobs) {
 
 sub save {
    my ($DOM, $config_file) = @_;
-   #open my $fh, '>', $config_file;
-   #binmode $fh;
-   #$DOM->toFH($fh, 1);
    my $Tidy = XML::Tidy->new(xml => $DOM->toString());
    $Tidy->tidy();
    $Tidy->write($config_file);
