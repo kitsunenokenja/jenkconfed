@@ -7,3 +7,10 @@ put together quickly, and only as far as to solve the immediate needs. It can be
 better, and more flexible, but it's a starting point for such a tool. This Perl
 code could be adopted easily to operate on any XML files, not just for Jenkins.
 
+For additional details on the usage of this script, refer to the POD text by
+running:
+
+```bash
+$ jenkconfed.pl -h
+```
+
