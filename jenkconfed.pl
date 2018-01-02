@@ -301,7 +301,9 @@ Note: attributes should be the complete name/value string.
 
 Example: Set sample tag as <sample attr="true">
 
--a sample,attr="true"
+-a sample,attr=true
+
+Do B<NOT> quote the attribute for this switch's name/value pair.
 
 =item B<-b>
 
