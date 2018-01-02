@@ -10,7 +10,7 @@ use Pod::Usage;
 use XML::LibXML;
 use XML::Tidy;
 
-getopts("hbmp:i:e:t:n:a:", \my %args);
+getopts("hbmp:i:e:t:n:a:r:", \my %args);
 
 # Exit with help text if requested or required -i switch is missing
 pod2usage(-exitval => 0, -verbose => 2, -noperldoc => 1) if exists $args{h};
@@ -73,8 +73,9 @@ for my $job (@jobs) {
       next;
    }
 
-   my ($name, $value) = split(',', $args{t} // $args{n} // $args{a});
-   if (!defined $value) {
+   my $pair = $args{t} // $args{n} // $args{a} // $args{r};
+   my ($name, $value) = split(',', $pair);
+   if (!defined $args{r} && !defined $value) {
       say "WARNING: Invalid node/text specification for $job.";
       next;
    }
@@ -112,6 +113,11 @@ for my $job (@jobs) {
       }
       $Node->{$attr_name} = $attr_val;
       say "$job: $attr_name=\"$attr_val\"";
+   }
+   # Process node removal
+   elsif (exists $args{r}) {
+      $Node->unbindNode();
+      say "$job: $name removed";
    }
    # Program flow should never reach here; just warn the user
    else {
@@ -243,6 +249,8 @@ jenkconfed.pl [options]
 
 =item -a Attribute assignment
 
+=item -r Remove node from document
+
 =item -b Generate default build discarder property block
 
 =item -m Generate default authentication permissions matrix settings
@@ -305,6 +313,11 @@ Example: Set sample tag as <sample attr="true">
 
 Do B<NOT> quote the attribute for this switch's name/value pair.
 
+=item B<-r>
+
+Remove node. Specify an element to be removed from the DOM. For example, -r
+sample would remove the <sample> tag from the document.
+
 =item B<-b>
 
 Generate a default build discarder property block. If the block is already
@@ -325,8 +338,14 @@ job entries are visible to underprivileged authenticated users.
 
 This script modifies an arbitrary number of Jenkins job config.xml files.
 It can add a child node, edit a node's text, or edit an attribute value.
-Only B<single operations> may be selected i.e. one -t, -n, or -a switch.
-Extraneous switches will be B<ignored silently>.
+Only B<single operations> may be selected per call. Extraneous switches will be
+B<ignored silently>.
+
+Disambiguation of tag selection is supported by partial XPath specification. For
+example, name is not a unique element and may be uniquely identified by
+prefixing it with the name of its parent element e.g. 'parentElement/name' would
+match the name element that is the child of parentElement only, and not the
+child name of element otherElement.
 
 =cut
 
