@@ -10,7 +10,7 @@ use Pod::Usage;
 use XML::LibXML;
 use XML::Tidy;
 
-getopts("hbp:i:e:t:n:a:", \my %args);
+getopts("hbmp:i:e:t:n:a:", \my %args);
 
 # Exit with help text if requested or required -i switch is missing
 pod2usage(-exitval => 0, -verbose => 2, -noperldoc => 1) if exists $args{h};
@@ -58,6 +58,17 @@ for my $job (@jobs) {
       }
       else {
          say "WARNING: Cannot add build discarder property to $job!";
+      }
+      next;
+   }
+   # Generate the default permission matrix settings
+   if (exists $args{m}) {
+      if (add_auth_perms($DOM)) {
+         say "$job: Registered default auth perms";
+         save($DOM, $config_file);
+      }
+      else {
+         say "WARNING: Cannot set default auth perms to $job!";
       }
       next;
    }
@@ -154,6 +165,51 @@ sub add_build_discarder {
    return 1;
 }
 
+sub add_auth_perms {
+   my $DOM = shift;
+   my $RootNode = $DOM->documentElement();
+   my ($Properties) = $RootNode->findnodes(".//properties");
+
+   # Sanity check: job config must have the properties element
+   if (!defined $Properties) {
+      return 0;
+   }
+
+   # Abort if the element already exists
+   if ($Properties->findnodes("/hudson.security.AuthorizationMatrixProperty")) {
+      return 1;
+   }
+
+   # Assemble all the elements for this set and append to DOM
+   my $AuthMatrix = $DOM->createElement(
+      "hudson.security.AuthorizationMatrixProperty"
+   );
+   my $Strategy = $DOM->createElement("inheritanceStrategy");
+   $Strategy->{"class"} =
+      "org.jenkinsci.plugins.matrixauth.inheritance.InheritParentStrategy";
+   $AuthMatrix->appendChild($Strategy);
+
+   my $Node = $DOM->createElement("permission");
+   $Node->appendText("hudson.model.Item.Build:authenticated");
+   $AuthMatrix->appendChild($Node);
+
+   $Node = $DOM->createElement("permission");
+   $Node->appendText("hudson.model.Item.Read:authenticated");
+   $AuthMatrix->appendChild($Node);
+
+   $Node = $DOM->createElement("permission");
+   $Node->appendText("hudson.model.Item.Workspace:authenticated");
+   $AuthMatrix->appendChild($Node);
+
+   $Node = $DOM->createElement("permission");
+   $Node->appendText("hudson.scm.SCM.Tag:authenticated");
+   $AuthMatrix->appendChild($Node);
+
+   $Properties->appendChild($AuthMatrix);
+
+   return 1;
+}
+
 __END__
 
 =head1 NAME
@@ -181,6 +237,8 @@ jenkconfed.pl [options]
 =item -a Attribute assignment
 
 =item -b Generate default build discarder property block
+
+=item -m Generate default authentication permissions matrix settings
 
 =back
 
@@ -244,6 +302,13 @@ Generate a default build discarder property block. If the block is already
 defined in the config, this option silently does nothing. Otherwise, the
 entire block is added with default settings. Use B<-b> to ensure job
 configurations are limiting historical builds on the file system.
+
+=item B<-m>
+
+Generate a default authentication permissions matrix. If the block is already
+defined in the config, this option silently does nothing. Otherwise, the entire
+block is added with default settings. Use this switch to ensure non-production
+job entries are visible to underprivileged authenticated users.
 
 =back
 
