@@ -87,8 +87,14 @@ for my $job (@jobs) {
 
    # Process a text replacement
    if (exists $args{t}) {
-      my $Text = $Node->firstChild;
-      $Text->setData($value);
+      # For non-empty text element
+      if (my $Text = $Node->firstChild) {
+         $Text->setData($value);
+      }
+      # For empty element, append text
+      else {
+         $Node->appendText($value);
+      }
       say "$job: $name -> $value";
    }
    # Process new child node entry
