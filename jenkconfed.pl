@@ -149,21 +149,22 @@ sub add_build_discarder {
    my $Strategy = $DOM->createElement("strategy");
    $Strategy->{"class"} = "hudson.tasks.LogRotator";
 
-   my $Node = $DOM->createElement("daysToKeep");
-   $Node->appendText("5");
-   $Strategy->appendChild($Node);
+   # Use 4 different Node variables to avoid reference clobbering
+   my $Node1 = $DOM->createElement("daysToKeep");
+   $Node1->appendText("5");
+   $Strategy->appendChild($Node1);
 
-   $Node = $DOM->createElement("numToKeep");
-   $Node->appendText("5");
-   $Strategy->appendChild($Node);
+   my $Node2 = $DOM->createElement("numToKeep");
+   $Node2->appendText("5");
+   $Strategy->appendChild($Node2);
 
-   $Node = $DOM->createElement("artifactDaysToKeep");
-   $Node->appendText("5");
-   $Strategy->appendChild($Node);
+   my $Node3 = $DOM->createElement("artifactDaysToKeep");
+   $Node3->appendText("5");
+   $Strategy->appendChild($Node3);
 
-   $Node = $DOM->createElement("artifactNumToKeep");
-   $Node->appendText("5");
-   $Strategy->appendChild($Node);
+   my $Node4 = $DOM->createElement("artifactNumToKeep");
+   $Node4->appendText("5");
+   $Strategy->appendChild($Node4);
 
    $BDP->appendChild($Strategy);
    $Properties->appendChild($BDP);
