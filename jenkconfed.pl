@@ -10,7 +10,7 @@ use Pod::Usage;
 use XML::LibXML;
 use XML::Tidy;
 
-getopts("hBbMmwc:i:e:t:n:a:r:", \my %args);
+getopts("hBbMmwRc:i:e:t:n:a:r:", \my %args);
 
 # Exit with help text if requested or required -i switch is missing
 pod2usage(-exitval => 0, -verbose => 2, -noperldoc => 1) if exists $args{h};
@@ -94,6 +94,18 @@ for my $job (@jobs) {
       }
       else {
          say "WARNING: Failed prod conversion for $job!";
+      }
+      next;
+   }
+
+   # Construct default release build settings
+   if (exists $args{R}) {
+      if (add_release($DOM)) {
+         say "$job: Release build settings registered";
+         save($DOM, $config_file);
+      }
+      else {
+         say "WARNING: Cannot set release build settings for $job!";
       }
       next;
    }
@@ -413,6 +425,95 @@ sub prod_conversion {
    1;
 }
 
+sub add_release {
+   my $DOM = shift;
+   my $RootNode = $DOM->documentElement();
+   return 1 if $RootNode->findnodes(".//buildWrappers");
+   my $Node;
+
+   my $BuildWrappers = $DOM->createElement("buildWrappers");
+
+   # Assemble pre-build
+   my $tag = "hudson.plugins.ws__cleanup.PreBuildCleanup";
+   my $PreBuildCleanup = $DOM->createElement($tag);
+   $PreBuildCleanup->{"plugin"} = 'ws-cleanup@0.34';
+   $Node = $DOM->createElement("deleteDirs");
+   $Node->appendText("false");
+   $PreBuildCleanup->appendChild($Node);
+   for (("cleanupParameter", "externalDelete")) {
+      $PreBuildCleanup->appendChild($DOM->createElement($_));
+   }
+   $BuildWrappers->appendChild($PreBuildCleanup);
+
+   # Assemble timestamper
+   $tag = "hudson.plugins.timestamper.TimestamperBuildWrapper";
+   $Node = $DOM->createElement($tag);
+   $Node->{"plugin"} = 'timestamper@1.8.9';
+   $BuildWrappers->appendChild($Node);
+
+   # Assemble release wrapper
+   $tag = "hudson.plugins.release.ReleaseWrapper";
+   my $ReleaseWrapper = $DOM->createElement($tag);
+   $ReleaseWrapper->{"plugin"} = 'release@2.9';
+   $Node = $DOM->createElement("releaseVersionTemplate");
+   $ReleaseWrapper->appendChild($Node);
+   $Node = $DOM->createElement("doNotKeepLog");
+   $Node->appendText("true");
+   $ReleaseWrapper->appendChild($Node);
+   $Node = $DOM->createElement("overrideBuildParameters");
+   $Node->appendText("false");
+   $ReleaseWrapper->appendChild($Node);
+
+   my $ParameterDefinitions = $DOM->createElement("parameterDefinitions");
+   $tag = "hudson.scm.listtagsparameter.ListSubversionTagsParameterDefinition";
+   ($Node) = $RootNode->findnodes(".//parameterDefinitions/$tag");
+   $ParameterDefinitions->appendChild($Node->cloneNode(1));
+
+   my $CPD = $DOM->createElement("hudson.model.ChoiceParameterDefinition");
+   $Node = $DOM->createElement("name");
+   $Node->appendText("RELEASE_ENVIRONMENT");
+   $CPD->appendChild($Node);
+   $Node = $DOM->createElement("description");
+   $Node->appendText("The environment where the build will be deployed.");
+   $CPD->appendChild($Node);
+   my $Choices = $DOM->createElement("choices");
+   $Choices->{"class"} = 'java.util.Arrays$ArrayList';
+   my $A = $DOM->createElement("a");
+   $A->{"class"} = "string-array";
+   for (("Dev", "Test")) {
+      $Node = $DOM->createElement("string");
+      $Node->appendText($_);
+      $A->appendChild($Node);
+   }
+   $Choices->appendChild($A);
+   $CPD->appendChild($Choices);
+   $ParameterDefinitions->appendChild($CPD);
+   $ReleaseWrapper->appendChild($ParameterDefinitions);
+
+   my $PBS = $DOM->createElement("preBuildSteps");
+   ($Node) = $RootNode->findnodes(".//hudson.tasks.Shell");
+   $PBS->appendChild($Node->cloneNode(1));
+   $tag = ".//hudson.plugins.warnings.WarningsPublisher";
+   ($Node) = $RootNode->findnodes($tag);
+   $PBS->appendChild($Node->cloneNode(1));
+   $ReleaseWrapper->appendChild($PBS);
+
+   my @nodes = (
+      "postBuildSteps",
+      "postSuccessfulBuildSteps",
+      "postFailedBuildSteps",
+      "preMatrixBuildSteps",
+      "postSuccessfulMatrixBuildSteps",
+      "postFailedMatrixBuildSteps",
+      "postMatrixBuildSteps"
+   );
+   $ReleaseWrapper->appendChild($DOM->createElement($_)) for (@nodes);
+   $BuildWrappers->appendChild($ReleaseWrapper);
+   $RootNode->appendChild($BuildWrappers);
+
+   1;
+}
+
 __END__
 
 =head1 NAME
@@ -450,6 +551,8 @@ jenkconfed.pl [options]
 =item -M Same as -m, but overwrites if matrix settings already exist
 
 =item -w Generate default scan warnings block
+
+=item -R Construct the default release build settings
 
 =item -c Convert config options for prod usage
 
@@ -536,6 +639,12 @@ present, B<-M> always takes precedence.
 
 Generate a default scan warnings block. This block creates an entry that will
 enforce the build status as unstable if javac produces any warnings.
+
+=item B<-R>
+
+Constructs the default release build settings. This routine will consume
+existing SVN, compiler warning, and shell  settings from the config file when
+assembling the release build options.
 
 =item B<-c>
 
