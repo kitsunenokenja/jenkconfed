@@ -10,7 +10,7 @@ use Pod::Usage;
 use XML::LibXML;
 use XML::Tidy;
 
-getopts("hBbMmw:i:e:t:n:a:r:", \my %args);
+getopts("hBbMmwc:i:e:t:n:a:r:", \my %args);
 
 # Exit with help text if requested or required -i switch is missing
 pod2usage(-exitval => 0, -verbose => 2, -noperldoc => 1) if exists $args{h};
@@ -82,6 +82,18 @@ for my $job (@jobs) {
       }
       else {
          say "WARNING: Cannot set scan compiler warnings settings to $job!";
+      }
+      next;
+   }
+
+   # Convert common elements for a prod version of the config
+   if (exists $args{c}) {
+      if (prod_conversion($DOM)) {
+         say "$job: Prod conversion successful";
+         save($DOM, $config_file);
+      }
+      else {
+         say "WARNING: Failed prod conversion for $job!";
       }
       next;
    }
@@ -352,6 +364,55 @@ sub add_scan_warnings {
    return 1;
 }
 
+sub prod_conversion {
+   my $DOM = shift;
+   my $RootNode = $DOM->documentElement();
+
+   # Unset the days-to-keep limit
+   for ($RootNode->findnodes(".//daysToKeep")) {
+      my $Text = $_->firstChild;
+      $Text->setData("-1");
+   }
+
+   # Change all branch selection filters
+   for ($RootNode->findnodes(".//tagsFilter")) {
+      my $Text = $_->firstChild;
+      $Text->setData("^(?!branches).*");
+   }
+
+   # Drop auth matrix
+   my $tag = ".//hudson.security.AuthorizationMatrixProperty";
+   $_->unbindNode() for $RootNode->findnodes($tag);
+
+   # Disable script trigger
+   $_->unbindNode() for $RootNode->findnodes(".//authToken");
+
+   # Eliminate unstable return options for sysout scan
+   $_->unbindNode() for $RootNode->findnodes(".//unstableReturn");
+
+   # Switch scan warnings from unstable to failed
+   for ($RootNode->findnodes(".//unstableTotalAll")) {
+      my $Text = $_->firstChild;
+      $Text->setData("");
+   }
+   $_->appendText("0") for $RootNode->findnodes(".//failedTotalAll");
+
+   # Drop environment selector
+   $tag = ".//hudson.model.ChoiceParameterDefinition";
+   $_->unbindNode() for $RootNode->findnodes($tag);
+
+   # Drop failing build suspect entry
+   $tag = "hudson.plugins.emailext.plugins.recipients.FirstFailingBuild" .
+      "SuspectsRecipientProvider";
+   $_->unbindNode() for $RootNode->findnodes($tag);
+
+   # Drop unstable trigger for email
+   $tag = "hudson.plugins.emailext.plugins.trigger.UnstableTrigger";
+   $_->unbindNode() for $RootNode->findnodes($tag);
+
+   1;
+}
+
 __END__
 
 =head1 NAME
@@ -389,6 +450,8 @@ jenkconfed.pl [options]
 =item -M Same as -m, but overwrites if matrix settings already exist
 
 =item -w Generate default scan warnings block
+
+=item -c Convert config options for prod usage
 
 =back
 
@@ -473,6 +536,27 @@ present, B<-M> always takes precedence.
 
 Generate a default scan warnings block. This block creates an entry that will
 enforce the build status as unstable if javac produces any warnings.
+
+=item B<-c>
+
+Convert for prod usage. This option will convert the following common
+predictable options for the desired prod usage:
+
+=over 8
+
+=item Unset the days-to-keep limit for builds
+
+=item Change branch filter to omit branches rather than trunk
+
+=item Disable the auth matrix to hide the config from underprivileged users
+
+=item Disable trigger for external script control
+
+=item Promote System.out detector to fail the build
+
+=item Promote linter to fail the build
+
+=back
 
 =back
 
