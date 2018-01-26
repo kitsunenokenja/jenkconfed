@@ -10,7 +10,7 @@ use Pod::Usage;
 use XML::LibXML;
 use XML::Tidy;
 
-getopts("hbMmp:i:e:t:n:a:r:", \my %args);
+getopts("hBbMmp:i:e:t:n:a:r:", \my %args);
 
 # Exit with help text if requested or required -i switch is missing
 pod2usage(-exitval => 0, -verbose => 2, -noperldoc => 1) if exists $args{h};
@@ -51,8 +51,8 @@ for my $job (@jobs) {
    my $RootNode = $DOM->documentElement();
 
    # Generate the build discarder property element set
-   if (exists $args{b}) {
-      if (add_build_discarder($DOM)) {
+   if (exists $args{B} || exists $args{b}) {
+      if (add_build_discarder($DOM, exists $args{B})) {
          say "$job: Registered build discarder property";
          save($DOM, $config_file);
       }
@@ -137,7 +137,7 @@ sub save {
 }
 
 sub add_build_discarder {
-   my $DOM = shift;
+   my ($DOM, $force) = @_;
    my $RootNode = $DOM->documentElement();
    my ($Properties) = $RootNode->findnodes(".//properties");
 
@@ -150,9 +150,16 @@ sub add_build_discarder {
    if ($Properties->findnodes("/jenkins.model.BuildDiscarderProperty")) {
       return 1;
    }
+   # If the element exists, abort or clobber based on the force option
+   my $tag = "jenkins.model.BuildDiscarderProperty";
+   my ($BDP) = $Properties->findnodes(".//$tag");
+   if (defined $BDP) {
+      return 1 unless $force;
+      $BDP->unbindNode();
+   }
 
    # Assemble all the elements for this set and append to DOM
-   my $BDP = $DOM->createElement("jenkins.model.BuildDiscarderProperty");
+   $BDP = $DOM->createElement("jenkins.model.BuildDiscarderProperty");
    my $Strategy = $DOM->createElement("strategy");
    $Strategy->{"class"} = "hudson.tasks.LogRotator";
 
@@ -261,6 +268,8 @@ jenkconfed.pl [options]
 
 =item -b Generate default build discarder property block
 
+=item -B Same as -b, but overwrites if discarder settings already exist
+
 =item -m Generate default authentication permissions matrix settings
 
 =item -M Same as -m, but overwrites if matrix settings already exist
@@ -328,12 +337,13 @@ Do B<NOT> quote the attribute for this switch's name/value pair.
 Remove node. Specify an element to be removed from the DOM. For example, -r
 sample would remove the <sample> tag from the document.
 
-=item B<-b>
+=item B<-B>, B<-b>
 
-Generate a default build discarder property block. If the block is already
-defined in the config, this option silently does nothing. Otherwise, the
-entire block is added with default settings. Use B<-b> to ensure job
-configurations are limiting historical builds on the file system.
+Generate a default build discarder property block. Unless settings already
+exist, a new entry will be registered. Use B<-b> to ensure job configurations
+are limiting historical builds on the file system. Use B<-B> to discard any
+existing discarder settings and write the new default. If both switches are
+present, B<-B> always takes precedence.
 
 =item B<-M>, B<-m>
 
