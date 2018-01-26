@@ -10,7 +10,7 @@ use Pod::Usage;
 use XML::LibXML;
 use XML::Tidy;
 
-getopts("hBbMmwRc:i:e:t:n:a:r:", \my %args);
+getopts("hBbMmwRcdp:i:e:t:n:a:r:", \my %args);
 
 # Exit with help text if requested or required -i switch is missing
 pod2usage(-exitval => 0, -verbose => 2, -noperldoc => 1) if exists $args{h};
@@ -106,6 +106,18 @@ for my $job (@jobs) {
       }
       else {
          say "WARNING: Cannot set release build settings for $job!";
+      }
+      next;
+   }
+
+   # Ensure default post-build cleanup settings
+   if (exists $args{d}) {
+      if (add_cleanup($DOM)) {
+         say "$job: Post-build cleanup settings registered";
+         save($DOM, $config_file);
+      }
+      else {
+         say "WARNING: Cannot set post-build cleanup settings for $job!";
       }
       next;
    }
@@ -514,6 +526,48 @@ sub add_release {
    1;
 }
 
+sub add_cleanup {
+   my $DOM = shift;
+   my $RootNode = $DOM->documentElement();
+   my $tag = "hudson.plugins.ws__cleanup.WsCleanup";
+
+   # Remove the node if it exists
+   $_->unbindNode() for $RootNode->findnodes(".//$tag");
+
+   # Assemble the clean-up settings
+   my $Cleanup = $DOM->createElement($tag);
+   $Cleanup->{"plugin"} = 'ws-cleanup@0.34';
+
+   my $Node = $DOM->createElement("patterns");
+   $Node->{"class"} = "empty-list";
+   $Cleanup->appendChild($Node);
+
+   my %nodes = (
+      deleteDirs => "false",
+      skipWhenFailed => "false",
+      cleanWhenSuccess => "false",
+      cleanWhenUnstable => "false",
+      cleanWhenFailure => "true",
+      cleanWhenNotBuilt => "true",
+      cleanWhenAborted => "true",
+      notFailBuild => "true",
+      cleanupMatrixParent => "false"
+   );
+   for (keys %nodes) {
+      $Node = $DOM->createElement($_);
+      $Node->appendText($nodes{$_});
+      $Cleanup->appendChild($Node);
+   }
+
+   $Node = $DOM->createElement("externalDelete");
+   $Cleanup->appendChild($Node);
+
+   ($Node) = $RootNode->findnodes(".//publishers");
+   $Node->appendChild($Cleanup);
+
+   1;
+}
+
 __END__
 
 =head1 NAME
@@ -553,6 +607,8 @@ jenkconfed.pl [options]
 =item -w Generate default scan warnings block
 
 =item -R Construct the default release build settings
+
+=item -d Generate a default post-build clean-up settings block.
 
 =item -c Convert config options for prod usage
 
@@ -645,6 +701,10 @@ enforce the build status as unstable if javac produces any warnings.
 Constructs the default release build settings. This routine will consume
 existing SVN, compiler warning, and shell  settings from the config file when
 assembling the release build options.
+
+=item B<-d>
+
+Generate a default post-build clean-up settings block.
 
 =item B<-c>
 
