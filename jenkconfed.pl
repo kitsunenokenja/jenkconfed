@@ -10,7 +10,7 @@ use Pod::Usage;
 use XML::LibXML;
 use XML::Tidy;
 
-getopts("hBbMmp:i:e:t:n:a:r:", \my %args);
+getopts("hBbMmw:i:e:t:n:a:r:", \my %args);
 
 # Exit with help text if requested or required -i switch is missing
 pod2usage(-exitval => 0, -verbose => 2, -noperldoc => 1) if exists $args{h};
@@ -70,6 +70,18 @@ for my $job (@jobs) {
       }
       else {
          say "WARNING: Cannot set default auth perms to $job!";
+      }
+      next;
+   }
+
+   # Generate the default scan compiler warnings settings
+   if (exists $args{w}) {
+      if (add_scan_warnings($DOM)) {
+         say "$job: Registered scan compiler warnings settings";
+         save($DOM, $config_file);
+      }
+      else {
+         say "WARNING: Cannot set scan compiler warnings settings to $job!";
       }
       next;
    }
@@ -238,6 +250,108 @@ sub add_auth_perms {
    return 1;
 }
 
+sub add_scan_warnings {
+   my $DOM = shift;
+   my $RootNode = $DOM->documentElement();
+   my ($Publishers) = $RootNode->findnodes(".//publishers");
+   my $Node;
+
+   # Sanity check: job config must have the publishers element
+   if (!defined $Publishers) {
+      return 0;
+   }
+
+   my $tag = "hudson.plugins.warnings.WarningsPublisher";
+   return 1 if $RootNode->findnodes(".//publishers/$tag");
+   my $Warnings = $DOM->createElement($tag);
+   $Warnings->{"plugin"} = 'warnings@4.64';
+
+   my @nodes = (
+      "healthy",
+      "unHealthy",
+      ["thresholdLimit", "low"],
+      ["pluginName", "[WARNINGS] "],
+      "defaultEncoding",
+      ["canRunOnFailed", "false"],
+      ["usePreviousBuildAsReference", "false"],
+      ["useDeltaValues", "false"]
+   );
+   for (@nodes) {
+      my ($node, $value) = ref $_ eq "ARRAY" ? @$_ : $_;
+      $Node = $DOM->createElement($node);
+      $Node->appendText($value) if defined $value;
+      $Warnings->appendChild($Node);
+   }
+
+   my $Thresholds = $DOM->createElement("thresholds");
+   $Thresholds->{"plugin"} = 'analysis-core@1.93';
+
+   $Node = $DOM->createElement("unstableTotalAll");
+   $Node->appendText("0");
+   $Thresholds->appendChild($Node);
+
+   @nodes = (
+      "unstableTotalHigh",
+      "unstableTotalNormal",
+      "unstableTotalLow",
+      "unstableNewAll",
+      "unstableNewHigh",
+      "unstableNewNormal",
+      "unstableNewLow",
+      "failedTotalAll",
+      "failedTotalHigh",
+      "failedTotalNormal",
+      "failedTotalLow",
+      "failedNewAll",
+      "failedNewHigh",
+      "failedNewNormal",
+      "failedNewLow"
+   );
+   for (@nodes) {
+      $Node = $DOM->createElement($_);
+      $Thresholds->appendChild($Node);
+   }
+
+   $Warnings->appendChild($Thresholds);
+
+   $Node = $DOM->createElement("shouldDetectModules");
+   $Node->appendText("false");
+   $Warnings->appendChild($Node);
+
+   $Node = $DOM->createElement("dontComputeNew");
+   $Node->appendText("true");
+   $Warnings->appendChild($Node);
+
+   $Node = $DOM->createElement("doNotResolveRelativePaths");
+   $Node->appendText("true");
+   $Warnings->appendChild($Node);
+
+   @nodes = (
+      "includePattern",
+      "excludePattern",
+      "messagesPattern",
+      "categoriesPattern",
+      "parserConfigurations"
+   );
+   for (@nodes) {
+      $Node = $DOM->createElement($_);
+      $Warnings->appendChild($Node);
+   }
+
+   $tag = "hudson.plugins.warnings.ConsoleParser";
+   my $Parsers = $DOM->createElement("consoleParsers");
+   my $ConsoleParser = $DOM->createElement($tag);
+   my $ParserName = $DOM->createElement("parserName");
+   $ParserName->appendText("Java Compiler (javac)");
+   $ConsoleParser->appendChild($ParserName);
+   $Parsers->appendChild($ConsoleParser);
+
+   $Warnings->appendChild($Parsers);
+   $Publishers->appendChild($Warnings);
+
+   return 1;
+}
+
 __END__
 
 =head1 NAME
@@ -273,6 +387,8 @@ jenkconfed.pl [options]
 =item -m Generate default authentication permissions matrix settings
 
 =item -M Same as -m, but overwrites if matrix settings already exist
+
+=item -w Generate default scan warnings block
 
 =back
 
@@ -353,6 +469,11 @@ With B<-m>, the existing settings will not be changed. Use B<-M> to discard any
 existing matrix settings and write the new default. If both switches are
 present, B<-M> always takes precedence.
 
+=item B<-w>
+
+Generate a default scan warnings block. This block creates an entry that will
+enforce the build status as unstable if javac produces any warnings.
+
 =back
 
 =head1 DESCRIPTION
@@ -371,4 +492,3 @@ child name of element otherElement.
 =cut
 
 # vim: set ts=3 sw=3 tw=80 et :
-
