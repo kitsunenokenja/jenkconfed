@@ -502,15 +502,8 @@ sub add_release {
    $ParameterDefinitions->appendChild($CPD);
    $ReleaseWrapper->appendChild($ParameterDefinitions);
 
-   my $PBS = $DOM->createElement("preBuildSteps");
-   ($Node) = $RootNode->findnodes(".//hudson.tasks.Shell");
-   $PBS->appendChild($Node->cloneNode(1));
-   $tag = ".//hudson.plugins.warnings.WarningsPublisher";
-   ($Node) = $RootNode->findnodes($tag);
-   $PBS->appendChild($Node->cloneNode(1));
-   $ReleaseWrapper->appendChild($PBS);
-
    my @nodes = (
+      "preBuildSteps",
       "postBuildSteps",
       "postSuccessfulBuildSteps",
       "postFailedBuildSteps",
