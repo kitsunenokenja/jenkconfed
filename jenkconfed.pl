@@ -10,7 +10,7 @@ use Pod::Usage;
 use XML::LibXML;
 use XML::Tidy;
 
-getopts("hBbMmwRcdp:i:e:t:n:N:a:r:", \my %args);
+getopts("hBbMmwSsRcdp:i:e:t:n:N:a:r:", \my %args);
 
 # Exit with help text if requested or required -i switch is missing
 pod2usage(-exitval => 0, -verbose => 2, -noperldoc => 1) if exists $args{h};
@@ -70,6 +70,18 @@ for my $job (@jobs) {
       }
       else {
          say "WARNING: Cannot set default auth perms to $job!";
+      }
+      next;
+   }
+
+   # Generate the default PMD/CPD plugin settings
+   if (exists $args{S} || exists $args{s}) {
+      if (code_analysis($DOM, exists $args{S})) {
+         say "$job: Registered default PMD/CPD settings";
+         save($DOM, $config_file);
+      }
+      else {
+         say "WARNING: Cannot set default settings for PMD/CPD to $job!";
       }
       next;
    }
@@ -567,6 +579,151 @@ sub add_cleanup {
    1;
 }
 
+sub code_analysis {
+   my ($DOM, $force) = @_;
+   my $RootNode = $DOM->documentElement();
+
+   # If force is enabled, destroy existing settings if they exist
+   if ($force) {
+      $_->unbindNode() for $RootNode->findnodes(".//hudson.plugins.pmd.PmdPublisher");
+      $_->unbindNode() for $RootNode->findnodes(".//hudson.plugins.dry.DryReporter");
+   }
+   # Otherwise, exit immediately upon detection
+   else {
+      return 1 if $RootNode->findnodes(".//hudson.plugins.pmd.PmdPublisher");
+   }
+
+   # Determine the parent node of all new children
+   my $is_maven = 1;
+   my ($ParentNode) = $RootNode->findnodes(".//reporters");
+   if (!defined $ParentNode) {
+      ($ParentNode) = $RootNode->findnodes(".//publishers");
+      $is_maven = 0;
+   }
+   my $type = $is_maven ? "Reporter" : "Publisher";
+
+   # Reporters have many common elements. Use a sub for each reporter.
+   my $reporter = sub {
+      my $Parent = shift;
+
+      $Parent->appendChild($DOM->createElement($_)) for ("healthy", "unHealthy");
+
+      my $Node = $DOM->createElement("thresholdLimit");
+      $Node->appendText("low");
+      $Parent->appendChild($Node);
+
+      my @nodes = (
+         "canRunOnFailed",
+         "usePreviousBuildAsReference",
+         "useStableBuildAsReference",
+         "useDeltaValues"
+      );
+      for (@nodes) {
+         $Node = $DOM->createElement($_);
+         $Node->appendText("false");
+         $Parent->appendChild($Node);
+      }
+
+      my $Thresholds = $DOM->createElement("thresholds");
+      $Thresholds->{plugin} = 'analysis-core@1.94';
+
+      @nodes = (
+         "unstableTotalAll",
+         "unstableTotalLow",
+         "unstableNewAll",
+         "unstableNewHigh",
+         "unstableNewNormal",
+         "unstableNewLow",
+         "failedTotalAll",
+         "failedTotalHigh",
+         "failedTotalNormal",
+         "failedTotalLow",
+         "failedNewAll",
+         "failedNewHigh",
+         "failedNewNormal",
+         "failedNewLow"
+      );
+      $Thresholds->appendChild($DOM->createElement($_)) for @nodes;
+
+      $Node = $DOM->createElement("unstableTotalHigh");
+      $Node->appendText("0");
+      $Thresholds->appendChild($Node);
+
+      $Node = $DOM->createElement("unstableTotalNormal");
+      $Node->appendText("0");
+      $Thresholds->appendChild($Node);
+
+      $Parent->appendChild($Thresholds);
+
+      $Node = $DOM->createElement("dontComputeNew");
+      $Node->appendText("true");
+      $Parent->appendChild($Node);
+   };
+
+   # Assemble the PMD settings
+   my $PMD = $DOM->createElement("hudson.plugins.pmd.Pmd$type");
+   $PMD->{plugin} = 'plugin@3.50';
+
+   $reporter->($PMD);
+
+   my $Node = $DOM->createElement("pluginName");
+   $Node->appendText("[PMD] ");
+   $PMD->appendChild($Node);
+
+   if (!$is_maven) {
+      $PMD->appendChild($DOM->createElement("defaultEncoding"));
+
+      $Node = $DOM->createElement("shouldDetectModules");
+      $Node->appendText("false");
+      $PMD->appendChild($Node);
+
+      $Node = $DOM->createElement("doNotResolveRelativePaths");
+      $Node->appendText("false");
+      $PMD->appendChild($Node);
+
+      $Node = $DOM->createElement("pattern");
+      $Node->appendText("**/*pmd.xml");
+      $PMD->appendChild($Node);
+   }
+
+   my $DRY = $DOM->createElement("hudson.plugins.dry.Dry$type");
+   $DRY->{plugin} = 'dry@2.50';
+
+   $reporter->($DRY);
+
+   $Node = $DOM->createElement("pluginName");
+   $Node->appendText("[DRY] ");
+   $DRY->appendChild($Node);
+
+   if (!$is_maven) {
+      $DRY->appendChild($DOM->createElement("defaultEncoding"));
+
+      $Node = $DOM->createElement("shouldDetectModules");
+      $Node->appendText("false");
+      $DRY->appendChild($Node);
+
+      $Node = $DOM->createElement("doNotResolveRelativePaths");
+      $Node->appendText("false");
+      $DRY->appendChild($Node);
+
+      $Node = $DOM->createElement("pattern");
+      $DRY->appendChild($Node);
+   }
+
+   $Node = $DOM->createElement("highThreshold");
+   $Node->appendText("10");
+   $DRY->appendChild($Node);
+
+   $Node = $DOM->createElement("normalThreshold");
+   $Node->appendText("5");
+   $DRY->appendChild($Node);
+
+   $ParentNode->insertBefore($PMD, $ParentNode->firstChild);
+   $ParentNode->insertAfter($DRY, $PMD);
+
+   1;
+}
+
 __END__
 
 =head1 NAME
@@ -604,6 +761,10 @@ jenkconfed.pl [options]
 =item -m Generate default authentication permissions matrix settings
 
 =item -M Same as -m, but overwrites if matrix settings already exist
+
+=item -s Generate default PMD/CPD settings
+
+=item -S Same as -s, but overwrites if PMD/CPD settings already exist
 
 =item -w Generate default scan warnings block
 
@@ -695,6 +856,14 @@ non-production job entries are visible to underprivileged authenticated users.
 With B<-m>, the existing settings will not be changed. Use B<-M> to discard any
 existing matrix settings and write the new default. If both switches are
 present, B<-M> always takes precedence.
+
+=item B<-S>, B<-s>
+
+Generate default PMD/CPD settings. These switches inherently detect the
+differences between standard projects e.g. Ant and Maven. With B<-s>, the
+existing settings will not be changed. Use B<-S> to discard any existing
+settings and write the new default. If both switches are present, B<-S> always
+takes precedence.
 
 =item B<-w>
 
