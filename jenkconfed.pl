@@ -10,7 +10,7 @@ use Pod::Usage;
 use XML::LibXML;
 use XML::Tidy;
 
-getopts("hBbMmwRcdp:i:e:t:n:a:r:", \my %args);
+getopts("hBbMmwRcdp:i:e:t:n:N:a:r:", \my %args);
 
 # Exit with help text if requested or required -i switch is missing
 pod2usage(-exitval => 0, -verbose => 2, -noperldoc => 1) if exists $args{h};
@@ -122,7 +122,7 @@ for my $job (@jobs) {
       next;
    }
 
-   my $pair = $args{t} // $args{n} // $args{a} // $args{r};
+   my $pair = $args{t} // $args{n} // $args{N} // $args{a} // $args{r};
    my ($name, $value) = split(',', $pair);
    if (!defined $args{r} && !defined $value) {
       say "WARNING: Invalid node/text specification for $job.";
@@ -152,6 +152,12 @@ for my $job (@jobs) {
       my $Child = $DOM->createElement($value);
       $Node->appendChild($Child);
       say "$job: $name + $value";
+   }
+   # Process new node entry to be inserted after another node
+   elsif (exists $args{N}) {
+      my $Sibling = $DOM->createElement($value);
+      $Node->parentNode->insertAfter($Sibling, $Node);
+      say "$job: $name ~ $value";
    }
    # Process attribute replacement
    elsif (exists $args{a}) {
@@ -585,6 +591,8 @@ jenkconfed.pl [options]
 
 =item -n New node entry
 
+=item -N New sibling entry
+
 =item -a Attribute assignment
 
 =item -r Remove node from document
@@ -651,6 +659,10 @@ new child element for it named after the second value.
 Example: This option adds <sample></sample> to a <properties> tag
 
 -n properties,sample
+
+=item B<-N>
+
+Similar to B<-n>, but adds a sibling rather than a new child.
 
 =item B<-a>
 
