@@ -435,7 +435,7 @@ sub prod_conversion {
    # Switch scan warnings from unstable to failed
    for ($RootNode->findnodes(".//unstableTotalAll")) {
       my $Text = $_->firstChild;
-      $Text->setData("");
+      $Text->setData("") if defined $Text;
    }
    $_->appendText("0") for $RootNode->findnodes(".//failedTotalAll");
 
